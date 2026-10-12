@@ -34,6 +34,88 @@ logging.basicConfig(
 
 logger = logging.getLogger("edge-tts-podcast")
 
+# ============================================================
+# EDGE TTS DIAGNOSTIC
+# ============================================================
+
+@app.get("/diagnose-tts")
+async def diagnose_tts():
+    """
+    اختبار مباشر لخدمة Edge TTS.
+
+    يعرض إصدار المكتبة، والصوت المستخدم، ونتيجة الاتصال،
+    وعدد بايتات الصوت المستلمة، ومدة الاختبار، والخطأ إن وجد.
+    """
+
+    import importlib.metadata
+    import time
+
+    started_at = time.monotonic()
+
+    result = {
+        "service": "Edge TTS Diagnostic",
+        "test": "started",
+        "edge_tts_version": None,
+        "voice": DEFAULT_VOICE,
+        "audio_received": False,
+        "audio_bytes": 0,
+        "duration_seconds": 0,
+        "error_type": None,
+        "error": None,
+    }
+
+    try:
+        result["edge_tts_version"] = importlib.metadata.version("edge-tts")
+
+        logger.info(
+            "Diagnostic TTS started | version=%s | voice=%s",
+            result["edge_tts_version"],
+            DEFAULT_VOICE,
+        )
+
+        communicate = edge_tts.Communicate(
+            text="مرحبا، هذا اختبار لاتصال خدمة توليد الصوت.",
+            voice=DEFAULT_VOICE,
+        )
+
+        audio_data = bytearray()
+
+        async for chunk in communicate.stream():
+            if chunk.get("type") == "audio":
+                audio_data.extend(chunk["data"])
+
+        if not audio_data:
+            raise RuntimeError("Edge TTS returned no audio data.")
+
+        result["test"] = "success"
+        result["audio_received"] = True
+        result["audio_bytes"] = len(audio_data)
+
+        logger.info(
+            "Diagnostic TTS succeeded | bytes=%s",
+            len(audio_data),
+        )
+
+    except Exception as exc:
+        result["test"] = "failed"
+        result["error_type"] = type(exc).__name__
+
+        # لا نُرجع رابط WebSocket الطويل أو معلمات الاتصال كاملة.
+        error_message = str(exc).split(", url=")[0]
+        result["error"] = error_message[:1000]
+
+        logger.exception("Diagnostic TTS failed")
+
+    finally:
+        result["duration_seconds"] = round(
+            time.monotonic() - started_at,
+            3,
+        )
+
+    return result
+
+
+
 
 # ============================================================
 # SETTINGS
